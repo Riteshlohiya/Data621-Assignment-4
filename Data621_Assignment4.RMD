@@ -796,12 +796,7 @@ In the final step we will test our model by using the test data.
 
 ```{r}
 ins_eval <- read.csv("https://raw.githubusercontent.com/Riteshlohiya/Data621-Assignment-4/master/insurance-evaluation-data.csv")
-var_class <- data.frame(Class = rep(NA, ncol(ins_eval) - 1), Levels = rep(NA, ncol(ins_eval) - 1), stringsAsFactors = FALSE, check.names = FALSE, row.names = names(ins_eval)[-1])
-for(i in 2:ncol(ins_eval)) {
-  var_class[i - 1, 1] <- class(ins_eval[, i])
-  var_class[i - 1, 2] <- ifelse(length(levels(ins_eval[, i])) == 0, '-', length(levels(ins_eval[, i])))
-}
-pander(var_class)
+
 
 ins_eval$INCOME <- as.numeric(str_replace_all(ins_eval$INCOME, "[[:punct:]\\$]",""))
 ins_eval$HOME_VAL <- as.numeric(str_replace_all(ins_eval$HOME_VAL, "[[:punct:]\\$]",""))
@@ -863,6 +858,16 @@ ins_eval$predict_prob <- predict(flag_reduced_mod, ins_eval, type='response')
 ins_eval$predict_target <- ifelse(ins_eval$predict_prob >= 0.50, 1,0)
 
 write.csv(ins_eval,"Evaluation_Data.csv", row.names=FALSE)
+
+ins_eval$TARGET_AMT1 <- 0
+
+ins_eval1 <- filter(ins_eval, predict_target == 1)
+ins_eval1$predict_target<-as.numeric(ins_eval1$predict_target)
+
+ins_eval1$TARGET_AMT1 <- predict(amount_reduced_model2, newdata=ins_eval1)
+ins_eval1
+write.csv(ins_eval1,"Evaluation_Full_Data.csv", row.names=FALSE)
+
 ```
 
 

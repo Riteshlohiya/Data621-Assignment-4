@@ -1508,154 +1508,9 @@ F1_score(data)</code></pre>
 <h1>TEST DATA PREPARATION AND TESTING THE MODEL ON EVALUATION DATA:</h1>
 <p>In the final step we will test our model by using the test data.</p>
 <pre class="r"><code>ins_eval &lt;- read.csv(&quot;https://raw.githubusercontent.com/Riteshlohiya/Data621-Assignment-4/master/insurance-evaluation-data.csv&quot;)
-var_class &lt;- data.frame(Class = rep(NA, ncol(ins_eval) - 1), Levels = rep(NA, ncol(ins_eval) - 1), stringsAsFactors = FALSE, check.names = FALSE, row.names = names(ins_eval)[-1])
-for(i in 2:ncol(ins_eval)) {
-  var_class[i - 1, 1] &lt;- class(ins_eval[, i])
-  var_class[i - 1, 2] &lt;- ifelse(length(levels(ins_eval[, i])) == 0, '-', length(levels(ins_eval[, i])))
-}
-pander(var_class)</code></pre>
-<table style="width:53%;">
-<colgroup>
-<col width="25%"></col>
-<col width="13%"></col>
-<col width="13%"></col>
-</colgroup>
-<thead>
-<tr class="header">
-<th align="center"> </th>
-<th align="center">Class</th>
-<th align="center">Levels</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td align="center"><strong>TARGET_FLAG</strong></td>
-<td align="center">logical</td>
-<td align="center">-</td>
-</tr>
-<tr class="even">
-<td align="center"><strong>TARGET_AMT</strong></td>
-<td align="center">logical</td>
-<td align="center">-</td>
-</tr>
-<tr class="odd">
-<td align="center"><strong>KIDSDRIV</strong></td>
-<td align="center">integer</td>
-<td align="center">-</td>
-</tr>
-<tr class="even">
-<td align="center"><strong>AGE</strong></td>
-<td align="center">integer</td>
-<td align="center">-</td>
-</tr>
-<tr class="odd">
-<td align="center"><strong>HOMEKIDS</strong></td>
-<td align="center">integer</td>
-<td align="center">-</td>
-</tr>
-<tr class="even">
-<td align="center"><strong>YOJ</strong></td>
-<td align="center">integer</td>
-<td align="center">-</td>
-</tr>
-<tr class="odd">
-<td align="center"><strong>INCOME</strong></td>
-<td align="center">factor</td>
-<td align="center">1804</td>
-</tr>
-<tr class="even">
-<td align="center"><strong>PARENT1</strong></td>
-<td align="center">factor</td>
-<td align="center">2</td>
-</tr>
-<tr class="odd">
-<td align="center"><strong>HOME_VAL</strong></td>
-<td align="center">factor</td>
-<td align="center">1398</td>
-</tr>
-<tr class="even">
-<td align="center"><strong>MSTATUS</strong></td>
-<td align="center">factor</td>
-<td align="center">2</td>
-</tr>
-<tr class="odd">
-<td align="center"><strong>SEX</strong></td>
-<td align="center">factor</td>
-<td align="center">2</td>
-</tr>
-<tr class="even">
-<td align="center"><strong>EDUCATION</strong></td>
-<td align="center">factor</td>
-<td align="center">5</td>
-</tr>
-<tr class="odd">
-<td align="center"><strong>JOB</strong></td>
-<td align="center">factor</td>
-<td align="center">9</td>
-</tr>
-<tr class="even">
-<td align="center"><strong>TRAVTIME</strong></td>
-<td align="center">integer</td>
-<td align="center">-</td>
-</tr>
-<tr class="odd">
-<td align="center"><strong>CAR_USE</strong></td>
-<td align="center">factor</td>
-<td align="center">2</td>
-</tr>
-<tr class="even">
-<td align="center"><strong>BLUEBOOK</strong></td>
-<td align="center">factor</td>
-<td align="center">1417</td>
-</tr>
-<tr class="odd">
-<td align="center"><strong>TIF</strong></td>
-<td align="center">integer</td>
-<td align="center">-</td>
-</tr>
-<tr class="even">
-<td align="center"><strong>CAR_TYPE</strong></td>
-<td align="center">factor</td>
-<td align="center">6</td>
-</tr>
-<tr class="odd">
-<td align="center"><strong>RED_CAR</strong></td>
-<td align="center">factor</td>
-<td align="center">2</td>
-</tr>
-<tr class="even">
-<td align="center"><strong>OLDCLAIM</strong></td>
-<td align="center">factor</td>
-<td align="center">834</td>
-</tr>
-<tr class="odd">
-<td align="center"><strong>CLM_FREQ</strong></td>
-<td align="center">integer</td>
-<td align="center">-</td>
-</tr>
-<tr class="even">
-<td align="center"><strong>REVOKED</strong></td>
-<td align="center">factor</td>
-<td align="center">2</td>
-</tr>
-<tr class="odd">
-<td align="center"><strong>MVR_PTS</strong></td>
-<td align="center">integer</td>
-<td align="center">-</td>
-</tr>
-<tr class="even">
-<td align="center"><strong>CAR_AGE</strong></td>
-<td align="center">integer</td>
-<td align="center">-</td>
-</tr>
-<tr class="odd">
-<td align="center"><strong>URBANICITY</strong></td>
-<td align="center">factor</td>
-<td align="center">2</td>
-</tr>
-</tbody>
-</table>
-<pre class="r"><code>ins_eval$INCOME &lt;- as.numeric(str_replace_all(ins_eval$INCOME, &quot;[[:punct:]\\$]&quot;,&quot;&quot;))
+
+
+ins_eval$INCOME &lt;- as.numeric(str_replace_all(ins_eval$INCOME, &quot;[[:punct:]\\$]&quot;,&quot;&quot;))
 ins_eval$HOME_VAL &lt;- as.numeric(str_replace_all(ins_eval$HOME_VAL, &quot;[[:punct:]\\$]&quot;,&quot;&quot;))
 ins_eval$BLUEBOOK &lt;- as.numeric(str_replace_all(ins_eval$BLUEBOOK, &quot;[[:punct:]\\$]&quot;,&quot;&quot;))
 ins_eval$OLDCLAIM &lt;- as.numeric(str_replace_all(ins_eval$OLDCLAIM, &quot;[[:punct:]\\$]&quot;,&quot;&quot;))
@@ -1714,7 +1569,16 @@ ins_eval$OLD_CLAIM_MOD &lt;- log(ins_eval$OLDCLAIM + 1)
 ins_eval$predict_prob &lt;- predict(flag_reduced_mod, ins_eval, type='response')
 ins_eval$predict_target &lt;- ifelse(ins_eval$predict_prob &gt;= 0.50, 1,0)
 
-write.csv(ins_eval,&quot;Evaluation_Data.csv&quot;, row.names=FALSE)</code></pre>
+write.csv(ins_eval,&quot;Evaluation_Data.csv&quot;, row.names=FALSE)
+
+ins_eval$TARGET_AMT1 &lt;- 0
+
+ins_eval1 &lt;- filter(ins_eval, predict_target == 1)
+ins_eval1$predict_target&lt;-as.numeric(ins_eval1$predict_target)
+
+ins_eval1$TARGET_AMT1 &lt;- predict(amount_reduced_model2, newdata=ins_eval1)
+
+write.csv(ins_eval1,&quot;Evaluation_Full_Data.csv&quot;, row.names=FALSE)</code></pre>
 </div>
 
 
