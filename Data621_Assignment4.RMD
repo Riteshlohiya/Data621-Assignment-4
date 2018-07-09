@@ -795,7 +795,7 @@ F1_score(data)
 In the final step we will test our model by using the test data.
 
 ```{r}
-ins_eval <- read.csv("https://raw.githubusercontent.com/Riteshlohiya/Data621-Assignment-4/master/insurance-evaluation-data.csv")
+ins_eval <- read.csv("https://raw.githubusercontent.com/Riteshlohiya/Data621-Assignment-4/master/insurance_evaluation_data.csv")
 
 
 ins_eval$INCOME <- as.numeric(str_replace_all(ins_eval$INCOME, "[[:punct:]\\$]",""))
