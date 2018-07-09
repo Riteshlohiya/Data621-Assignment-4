@@ -1,0 +1,901 @@
+---
+title: "Data621 Assignment 4"
+author: "Ritesh Lohiya"
+date: "July 6, 2018"
+output: html_document
+---
+
+Overview
+In this homework assignment, you will explore, analyze and model a data set containing approximately 8000 records representing a customer at an auto insurance company. Each record has two response variables. The first response variable, TARGET_FLAG, is a 1 or a 0. A “1” means that the person was in a car crash. A zero means that the person was not in a car crash. The second response variable is TARGET_AMT. This value is zero if the person did not crash their car. But if they did crash their car, this number will be a value greater than zero. Your objective is to build multiple linear regression and binary logistic regression models on the training data to predict the probability that a person will crash their car and also the amount of money it will cost if the person does crash their car. You can only use the variables given to you (or variables that you derive from the variables provided). Below is a short description of the variables of interest in the data set:
+
+#install.packages('pander')
+
+```{r}
+library(readr)
+library(kableExtra)
+library(tidyverse)
+library(knitr)
+library(psych)
+library(gridExtra)
+library(usdm)
+library(mice)
+library(ggiraph)
+library(cowplot)
+library(reshape2)
+library(corrgram)
+library(caTools)
+library(caret)
+library(ROCR)
+library(pROC)
+library(reshape2)
+library(Amelia)
+library(qqplotr)
+library(moments)
+library(car)
+library(MASS)
+library(geoR)
+library(pander)
+```
+
+#DATA EXPLORATION:
+
+The dataset of interest contains information about customers of an auto insurance company. The dataset has 8161 rows (each representing a customer) and 25 variables. There are 23 predictor variables and 2 response variables: TARGET_FLAG, a binary categorical variable representing whether each customer has been in an accident; and TARGET_AMT, a numerical variable indicating the cost of a crash that a customer was in. 
+
+```{r}
+ins_train <- read.csv("https://raw.githubusercontent.com/Riteshlohiya/Data621-Assignment-4/master/insurance_training_data.csv") 
+ins_eval <- read.csv("https://raw.githubusercontent.com/Riteshlohiya/Data621-Assignment-4/master/insurance-evaluation-data.csv")
+summary(ins_train)
+
+var_class <- data.frame(Class = rep(NA, ncol(ins_train) - 1), Levels = rep(NA, ncol(ins_train) - 1), stringsAsFactors = FALSE, check.names = FALSE, row.names = names(ins_train)[-1])
+for(i in 2:ncol(ins_train)) {
+  var_class[i - 1, 1] <- class(ins_train[, i])
+  var_class[i - 1, 2] <- ifelse(length(levels(ins_train[, i])) == 0, '-', length(levels(ins_train[, i])))
+}
+pander(var_class)
+```
+
+INCOME, HOME_VAL, BLUEBOOK, and OLDCLAIM are represented as strings. So we will be extracting the numeric values for these.
+
+```{r}
+ins_train$INCOME <- as.numeric(str_replace_all(ins_train$INCOME, "[[:punct:]\\$]",""))
+ins_train$HOME_VAL <- as.numeric(str_replace_all(ins_train$HOME_VAL, "[[:punct:]\\$]",""))
+ins_train$BLUEBOOK <- as.numeric(str_replace_all(ins_train$BLUEBOOK, "[[:punct:]\\$]",""))
+ins_train$OLDCLAIM <- as.numeric(str_replace_all(ins_train$OLDCLAIM, "[[:punct:]\\$]",""))
+```
+
+Visual Exploration:
+
+Now we will see the missing values in the dataset. For this i have used Amelia package. We can see there are missing values for CAR_AGE, HOME_VAL, YOJ and INCOME. There needs to be taken care while we do data prparation.
+
+```{r}
+missmap(ins_train, main = "Missing values vs observed",  color='dodgerblue')
+```
+
+Now lets do some plots to understand the data:
+
+AGE - Age of Driver. Very young people tend to be risky. Maybe very old people also. We note six missing values that we'll need to address later.
+The distribution of AGE is almost perfectly normal. When we break out the data by TARGET_FLAG values, the distributions of age by TARGET_FLAG are still roughly normal.
+
+```{r}
+with(ins_train, c(summary(AGE), SD=sd(AGE), Skew=skewness(AGE), Kurt=kurtosis(AGE)))
+
+hist <- ggplot(ins_train, aes(AGE)) + geom_histogram(fill = 'dodgerblue', binwidth = 10, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of AGE') + theme(plot.title = element_text(hjust = 0.5)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=AGE)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of AGE") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", AGE)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of AGE', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), AGE)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of AGE by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+BLUEBOOK - Value of Vehicle. Unknown effect on probability of collision, but probably effect the payout if there is a crash. Individuals involved in crashes have a higher proportion of low BLUEBOOK values. 
+
+```{r}
+with(ins_train, c(summary(BLUEBOOK), SD=sd(BLUEBOOK), Skew=skewness(BLUEBOOK), Kurt=kurtosis(BLUEBOOK)))
+
+hist <- ggplot(ins_train, aes(BLUEBOOK)) + geom_histogram(fill = 'dodgerblue', binwidth = 10000, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of BLUEBOOK') + theme(plot.title = element_text(hjust = 0.5)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=BLUEBOOK)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of BLUEBOOK") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", BLUEBOOK)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of BLUEBOOK', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), BLUEBOOK)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of BLUEBOOK by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+CAR_AGE - Vehicle Age. We could see there is one negative value for CAR_AGE. We have to treat this value in our data preparation step.
+
+```{r}
+with(ins_train, c(summary(CAR_AGE), SD=sd(CAR_AGE), Skew=skewness(CAR_AGE), Kurt=kurtosis(CAR_AGE)))
+
+hist <- ggplot(ins_train, aes(CAR_AGE)) + geom_histogram(fill = 'dodgerblue', binwidth = 5, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of CAR_AGE') + theme(plot.title = element_text(hjust = 0.5)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=CAR_AGE)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of CAR_AGE") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", CAR_AGE)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of CAR_AGE', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), CAR_AGE)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of CAR_AGE by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+CLM_FREQ - # Claims (Past 5 Years). The more claims you filed in the past, the more you are likely to file in the future. We can see that this variable is alos skewed. 
+
+```{r}
+with(ins_train, c(summary(CLM_FREQ), SD=sd(CLM_FREQ), Skew=skewness(CLM_FREQ), Kurt=kurtosis(CLM_FREQ)))
+
+hist <- ggplot(ins_train, aes(CLM_FREQ)) + geom_histogram(fill = 'dodgerblue', binwidth = 1, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of CLM_FREQ') + theme(plot.title = element_text(hjust = 0.5)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=CLM_FREQ)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of CLM_FREQ") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", CLM_FREQ)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of CLM_FREQ', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), CLM_FREQ)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of CLM_FREQ by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+HOMEKIDS - # Children at Home. HOMEKIDS does not seem to impact the TARGET_FLAG. The distribution of this discrete variable is right skewed.
+
+```{r}
+with(ins_train, c(summary(HOMEKIDS), SD=sd(HOMEKIDS), Skew=skewness(HOMEKIDS), Kurt=kurtosis(HOMEKIDS)))
+
+hist <- ggplot(ins_train, aes(HOMEKIDS)) + geom_histogram(fill = 'dodgerblue', binwidth = 1, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of HOMEKIDS') + theme(plot.title = element_text(hjust = 0.5)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=HOMEKIDS)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of HOMEKIDS") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", HOMEKIDS)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of HOMEKIDS', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), HOMEKIDS)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of HOMEKIDS by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+HOME_VAL - Home Value. Home owners tend to drive more responsibly. The distribution of HOME_VAL is right skewed and also we can there are some missing values.
+
+```{r}
+with(ins_train, c(summary(HOME_VAL), SD=sd(HOME_VAL), Skew=skewness(HOME_VAL), Kurt=kurtosis(HOME_VAL)))
+
+hist <- ggplot(ins_train, aes(HOME_VAL)) + geom_histogram(fill = 'dodgerblue', binwidth = 100000, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of HOME_VAL') + theme(plot.title = element_text(hjust = 0.5)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=HOME_VAL)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of HOME_VAL") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", HOME_VAL)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of HOME_VAL', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), HOME_VAL)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of HOME_VAL by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+INCOME - Income of the person. Rich people tend to get into fewer crashes. The distribution of INCOME is right skewed, with a significant number of observations indicating $0 in income. There are some missing values in this aswell.
+
+```{r}
+with(ins_train, c(summary(INCOME), SD=sd(INCOME), Skew=skewness(INCOME), Kurt=kurtosis(INCOME)))
+
+hist <- ggplot(ins_train, aes(INCOME)) + geom_histogram(fill = 'dodgerblue', binwidth = 10000, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of INCOME') + theme(plot.title = element_text(hjust = 1)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=INCOME)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of INCOME") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", INCOME)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of INCOME', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), INCOME)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of INCOME by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+KIDSDRIV - # Driving Children. When teenagers drive your car, you are more likely to get into crashes. The discrete variable KIDSDRIV is right skewed
+
+```{r}
+with(ins_train, c(summary(KIDSDRIV), SD=sd(KIDSDRIV), Skew=skewness(KIDSDRIV), Kurt=kurtosis(KIDSDRIV)))
+
+hist <- ggplot(ins_train, aes(KIDSDRIV)) + geom_histogram(fill = 'dodgerblue', binwidth = 1, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of KIDSDRIV') + theme(plot.title = element_text(hjust = 0.5)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=KIDSDRIV)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of KIDSDRIV") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", KIDSDRIV)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of KIDSDRIV', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), KIDSDRIV)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of KIDSDRIV by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+MVR_PTS - Motor Vehicle Record Points. If you get lots of traffic tickets, you tend to get into more crashes. MVR_PTS is positively skewed.
+
+```{r}
+with(ins_train, c(summary(MVR_PTS), SD=sd(MVR_PTS), Skew=skewness(MVR_PTS), Kurt=kurtosis(MVR_PTS)))
+
+hist <- ggplot(ins_train, aes(MVR_PTS)) + geom_histogram(fill = 'dodgerblue', binwidth = 1, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of MVR_PTS') + theme(plot.title = element_text(hjust = 0.5)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=MVR_PTS)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of MVR_PTS") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", MVR_PTS)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of MVR_PTS', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), MVR_PTS)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of MVR_PTS by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+OLDCLAIM - Total Claims (Past 5 Years). If your total payout over the past five years was high, this suggests future payouts will be high. The distribution of OLDCLAIM is extremely right skewed.
+
+```{r}
+with(ins_train, c(summary(OLDCLAIM), SD=sd(OLDCLAIM), Skew=skewness(OLDCLAIM), Kurt=kurtosis(OLDCLAIM)))
+
+hist <- ggplot(ins_train, aes(OLDCLAIM)) + geom_histogram(fill = 'dodgerblue', binwidth = 10000, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of OLDCLAIM') + theme(plot.title = element_text(hjust = 0.5)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=OLDCLAIM)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of OLDCLAIM") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", OLDCLAIM)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of OLDCLAIM', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), OLDCLAIM)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of OLDCLAIM by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+TIF - Time in Force. People who have been customers for a long time are usually more safe. The distribution is somewhat positively skewed.
+
+```{r}
+with(ins_train, c(summary(TIF), SD=sd(TIF), Skew=skewness(TIF), Kurt=kurtosis(TIF)))
+
+hist <- ggplot(ins_train, aes(TIF)) + geom_histogram(fill = 'dodgerblue', binwidth = 1, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of TIF') + theme(plot.title = element_text(hjust = 0.5)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=TIF)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of TIF") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", TIF)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of TIF', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), TIF)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of TIF by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+TRAVTIME - Distance to Work. Long drives to work usually suggest greater risk. The distribution has a slight positive skew. The subset of insureds with no accidents have a higher proportion of individuals with short commute times. 
+
+```{r}
+with(ins_train, c(summary(TRAVTIME), SD=sd(TRAVTIME), Skew=skewness(TRAVTIME), Kurt=kurtosis(TRAVTIME)))
+
+hist <- ggplot(ins_train, aes(TRAVTIME)) + geom_histogram(fill = 'dodgerblue', binwidth = 10, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of TRAVTIME') + theme(plot.title = element_text(hjust = 0.5)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=TRAVTIME)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of TRAVTIME") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", TRAVTIME)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of TRAVTIME', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), TRAVTIME)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of TRAVTIME by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+YOJ - Years on Job. People who stay at a job for a long time are usually more safe. The variable would be approximately normally distributed if it weren't for the high percentage of individuals with less than one year on the job.
+
+```{r}
+with(ins_train, c(summary(YOJ), SD=sd(YOJ), Skew=skewness(YOJ), Kurt=kurtosis(YOJ)))
+
+hist <- ggplot(ins_train, aes(YOJ)) + geom_histogram(fill = 'dodgerblue', binwidth = 5, color = 'darkgray' ) + 
+ theme_classic() + labs(title = 'Histogram of YOJ') + theme(plot.title = element_text(hjust = 0.5)) 
+
+qq_plot <- ggplot(ins_train, aes(sample=YOJ)) + stat_qq_point(color='dodgerblue') + stat_qq_line(color='darkgray') +
+  labs(x="Thoretical Quantiles", y="Sample Quantiles", title = "QQ Plot of YOJ") + theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+box_plot <- ggplot(ins_train, aes(x="", YOJ)) + geom_boxplot(fill='dodgerblue', color='darkgray')+ theme_classic() +
+  labs(title = 'Boxplot of YOJ', x="") + theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
+
+box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), YOJ)) + geom_boxplot(fill='dodgerblue', color='darkgrey') +
+  labs(x='target', title = 'Boxplot of YOJ by TARGET_FLAG') + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
+```
+
+EDUCATION - Unknown effect, but in theory more educated people tend to drive more safely. 
+
+```{r}
+options(width=100)
+tbl <- with(ins_train, rbind(addmargins(table(EDUCATION)),addmargins(prop.table(table(EDUCATION)))*100))
+row.names(tbl) <- c('count','percent')
+round(tbl,1)
+```
+
+REVOKED - License Revoked (Past 7 Years). If your license was revoked in the past 7 years, you probably are a more risky driver. Only 12% of drivers in the training data have a former license suspension on record.
+
+```{r}
+tbl <- addmargins(table(REVOKED=ins_train$REVOKED,TARGET_FLAG=ins_train$TARGET_FLAG))
+tbl
+```
+
+RED_CAR -  A Red Car. Urban legend says that red cars (especially red sports cars) are more risky. Is that true?. 30% of vehicles in the red category.
+
+```{r}
+tbl <- addmargins(table(RED_CAR=ins_train$RED_CAR,TARGET_FLAG=ins_train$TARGET_FLAG))
+tbl
+```
+
+CAR_USE - Vehicle Use.  Commercial vehicles are driven more, so might increase probability of collision. 60% car usage is private.
+
+```{r}
+tbl <- addmargins(table(CAR_USE=ins_train$CAR_USE,TARGET_FLAG=ins_train$TARGET_FLAG))
+tbl
+```
+
+SEX - Gender. Urban legend says that women have less crashes then men. Is that true?. The split between males and females is split almost 50/50.
+
+```{r}
+tbl <- addmargins(table(SEX=ins_train$SEX,TARGET_FLAG=ins_train$TARGET_FLAG))
+tbl
+round(prop.table(tbl[1:2,1:2], margin=1),2)
+prop.test(tbl[1:2,1:2])
+```
+
+MSTATUS - Marital Status.  In theory, married people drive more safely.
+
+```{r}
+tbl <- addmargins(table(MSTATUS=ins_train$MSTATUS,TARGET_FLAG=ins_train$TARGET_FLAG))
+tbl
+round(prop.table(tbl[1:2,1:2], margin=1),2)
+prop.test(tbl[1:2,1:2])
+```
+
+PARENT1 -  Single Parent. The is a 20% difference in the calculated proportions. This difference is statistically significant:
+
+```{r}
+tbl <- addmargins(table(PARENT1=ins_train$PARENT1,TARGET_FLAG=ins_train$TARGET_FLAG))
+tbl
+round(prop.table(tbl[1:2,1:2], margin=1),2)
+prop.test(tbl[1:2,1:2])
+```
+
+CAR_TYPE. Type of Car. We can see sports cars are having the highest proportion of accidents, and minivan have the lowest.
+
+```{r}
+tbl <- with(ins_train, addmargins(table(CAR_TYPE, TARGET_FLAG)))
+tbl
+pt <- round(prop.table(tbl[1:6,1:2], margin=1),2)
+pt
+prop.test(tbl[1:6,1:2])
+```
+
+
+TARGET Variables
+
+TARGET_FLAG - The response variable TARGET_FLAG has a moderate imbalance, with three-quarters of the observations indicating no crashes.
+
+```{r}
+tbl <- with(ins_train,rbind(round(addmargins(table(TARGET_FLAG)),0),
+                       addmargins(prop.table(table(TARGET_FLAG)))*100))
+row.names(tbl) <- c('count','percent')
+round(tbl,1)
+```
+
+TARGET_AMT
+
+TARGET_AMT - exhibits extreme, positive skewness and high kurtosis.
+
+```{r}
+options(width=100)
+round(with(ins_train, c(summary(TARGET_AMT), StdD=sd(TARGET_AMT), Skew=skewness(TARGET_AMT), Kurt=kurtosis(TARGET_AMT))),2)
+```
+
+
+```{r}
+h <- ggplot(ins_train, aes(TARGET_AMT)) + 
+  geom_histogram(color="ghostwhite", fill="darkgrey") +
+  theme_classic()+ labs(title = 'Histogram of TARGET_AMT') + 
+  theme(plot.title = element_text(hjust = 0.5),axis.title.y=element_text(size=10)) + 
+  theme(legend.position = c(1,1),legend.justification  = c(1,1), legend.background = element_rect(fill='dodgerblue')) +
+  scale_fill_manual("TARGET_FLAG",values=c("dodgerblue","dodgerblue")) +
+  theme(plot.title = element_text(size=12),legend.title=element_text(size=8),
+        legend.text=element_text(size=7),panel.background = element_rect(fill = "dodgerblue")) 
+
+b <- ggplot(ins_train, aes(x="",y=TARGET_AMT)) + 
+  geom_boxplot(color="ghostwhite", fill="steelblue4",outlier.color="darkgrey", outlier.size = 0.5) +
+  theme_classic()+ labs(title = 'Boxplot of TARGET_AMT') + 
+  theme(plot.title = element_text(hjust = 0.5),axis.title.y=element_text(size=10)) + 
+  theme(legend.position = c(1,1),legend.justification  = c(1,1), legend.background = element_rect(fill='dodgerblue')) +
+  scale_fill_manual("TARGET_FLAG",values=c("dodgerblue","dodgerblue")) +
+  theme(plot.title = element_text(size=12),legend.title=element_text(size=8),
+        legend.text=element_text(size=7),panel.background = element_rect(fill = "dodgerblue")) + coord_flip() + 
+  stat_summary(fun.y=mean, colour="darkred", geom="point", shape=16, size=2)
+
+
+grid.arrange(h,b, ncol=2)
+```
+
+#DATA PREPARATION:
+
+There are 7 variables that have only 2 values, so we can make them binary.
+
+PARENT1 - Convert yes to 1
+
+MSTATUS - Convert yes to 1
+
+RED_CAR - Convert yes to 1
+
+REVOKED - Convert yes to 1 
+
+SEX - Convert male to 1
+
+CAR_USE - Convert Commercial to 1 
+
+URBANICITY: Conver Highly Urban/ Urban to 1
+
+```{r}
+#Convert indicator variables to 0s and 1s; 1 = Yes, Male for Sex, Commercial for Car Use, Red for RED_CAR, and Highly Urban for URBANICITY
+ins_train$PARENT1 <- ifelse(ins_train$PARENT1=="Yes", 1, 0)
+ins_train$MSTATUS <- ifelse(ins_train$MSTATUS=="Yes", 1, 0)
+ins_train$SEX <- ifelse(ins_train$SEX=="M", 1, 0)
+ins_train$CAR_USE <- ifelse(ins_train$CAR_USE=="Commercial", 1, 0)
+ins_train$RED_CAR <- ifelse(ins_train$RED_CAR=="Yes", 1, 0)
+ins_train$REVOKED <- ifelse(ins_train$REVOKED=="Yes", 1, 0)
+ins_train$URBANICITY <- ifelse(ins_train$URBANICITY == "Highly Urban/ Urban", 1, 0)
+
+#Convert categorical predictor values to indicator variables - EDUCATION, CAR_TYPE, JOB
+
+#EDUCATION, High school graduate is base case
+ins_train$HSDropout <- ifelse(ins_train$EDUCATION=="<High School", 1, 0)
+ins_train$Bachelors <- ifelse(ins_train$EDUCATION=="Bachelors", 1, 0)
+ins_train$Masters <- ifelse(ins_train$EDUCATION=="Masters", 1, 0)
+ins_train$PhD <- ifelse(ins_train$EDUCATION=="PhD", 1, 0)
+
+#CAR_TYPE, base case is minivan
+ins_train$Panel_Truck <- ifelse(ins_train$CAR_TYPE=="Panel Truck", 1, 0)
+ins_train$Pickup <- ifelse(ins_train$CAR_TYPE=="Pickup", 1, 0)
+ins_train$Sports_Car <- ifelse(ins_train$CAR_TYPE=="Sports Car", 1, 0)
+ins_train$Van <- ifelse(ins_train$CAR_TYPE=="Van", 1, 0)
+ins_train$SUV <- ifelse(ins_train$CAR_TYPE=="z_SUV", 1, 0)
+
+#JOB, base case is ""
+ins_train$Professional <- ifelse(ins_train$JOB == "Professional", 1, 0)
+ins_train$Blue_Collar <- ifelse(ins_train$JOB == "Professional", 1, 0)
+ins_train$Clerical <- ifelse(ins_train$JOB == "Clerical", 1, 0)
+ins_train$Doctor <- ifelse(ins_train$JOB == "Doctor", 1, 0)
+ins_train$Lawyer <- ifelse(ins_train$JOB == "Lawyer", 1, 0)
+ins_train$Manager <- ifelse(ins_train$JOB == "Manager", 1, 0)
+ins_train$Home_Maker <- ifelse(ins_train$JOB == "Home Maker", 1, 0)
+ins_train$Student <- ifelse(ins_train$JOB == "Student", 1, 0)
+
+```
+
+Missing/ Error Values treatment:
+
+Due to the skewness illustrated by some of the variables with missing data, the median is used to avoid any bias introduced into the mean by the skewness of these variables' distribution.
+
+```{r}
+ins_train$CAR_AGE[ins_train$CAR_AGE == -3] <- NA
+
+ins_train <- ins_train %>% dplyr::select(-c(INDEX,EDUCATION,CAR_TYPE,JOB))
+
+fillwithmedian <- function(x) {
+  median_val = median(x, na.rm = TRUE)
+  x[is.na(x)] = median_val
+  return(x)
+}
+
+ins_train <- data.frame(lapply(ins_train, fillwithmedian))
+```
+
+Data transformatioms:
+
+INCOME
+
+Income is a positively skewed variable with a significant number zeroes. We will apply the square root transformation suggested by the box-cox procedure to the original variable to reduce the overall skew.
+
+```{r}
+boxcoxfit(ins_train$INCOME[ins_train$INCOME >0])
+ins_train$INCOME_MOD <- ins_train$INCOME ^0.433
+```
+
+HOME_VAL
+
+Home values are also moderately right skewed with a significant number of zeroes. We'll apply a quarter root transformation to the original variable to reduce the overall skew.
+
+```{r}
+boxcoxfit(ins_train$HOME_VAL[ins_train$HOME_VAL > 0])
+ins_train$HOME_VAL_MOD <- ins_train$HOME_VAL^0.113
+```
+
+BLUEBOOK
+
+The BLUEBOOK variable has a moderate right skew. We'll apply the square root transformation suggested by the box-cox procedure.
+
+```{r}
+boxcoxfit(ins_train$BLUEBOOK)
+ins_train$BLUEBOOK_MOD <- ins_train$BLUEBOOK^0.461
+```
+
+OLDCLAIM
+
+OLDCLAIM is extremely right skewed. We'll apply a log(x+1) transformation to reduce the overall skew.
+
+```{r}
+boxcoxfit(ins_train$OLDCLAIM[ins_train$OLDCLAIM>0])
+ins_train$OLD_CLAIM_MOD <- log(ins_train$OLDCLAIM + 1)   
+```
+
+#BUILD MODELS:
+
+1. Multiple linear regression models:
+
+Model 1 - : In this model we will use all the variables. This can be our base model.We can see which variables are significant. This will help us in looking at the P-Values and removing the non significant variables.
+
+```{r}
+train_amount <- ins_train[,-c(1)] #Training dataset with response of claim amount
+
+amount_full_model1 <- lm(TARGET_AMT ~., data = train_amount)
+summary(amount_full_model1)
+```
+
+
+
+Model 2 - Reduced model- I came up with this models after analyzing the output of model1. I removed all the variables that are not significant after seeing their P-Value.
+
+```{r}
+amount_reduced_model2 <- update(amount_full_model1, .~.-HSDropout-Home_Maker-Bachelors-Masters-PhD-Panel_Truck-Blue_Collar-Professional-Student-HOMEKIDS-CAR_AGE-YOJ-Lawyer-SEX-AGE-Doctor-Clerical-INCOME-HOME_VAL-BLUEBOOK-RED_CAR--CLM_FREQ-INCOME_MOD-HOME_VAL_MOD-BLUEBOOK_MOD-OLD_CLAIM_MOD-OLDCLAIM)
+summary(amount_reduced_model2)
+```
+
+
+Interpretation of the Model1:
+
+
+The Residual standard error is 4545
+Multiple R-squared: 0.07105
+Adjusted R-squared: 0.06659
+F-statistic: 15.93 on 39 and 8121 DF
+p-value: <  2.2e-16
+
+
+Analysis of plot on residuals to verify normal distribution of residuals
+
+
+```{r}
+sresid <- studres(amount_full_model1) 
+hist(sresid, freq=FALSE, 
+     main="Distribution of Residuals")
+xfit<-seq(min(sresid),max(sresid),length=40) 
+yfit<-dnorm(xfit) 
+lines(xfit, yfit)
+```
+
+Check for Homoscedasticity:
+
+```{r}
+ncvTest(amount_full_model1)
+spreadLevelPlot(amount_full_model1)
+```
+
+
+Interpretation of the Model2:
+
+
+The Residual standard error is  4556
+Multiple R-squared: 0.06366
+Adjusted R-squared: 0.06194
+F-statistic:  36.92 on 15 and 8145 DF
+p-value: <   2.2e-16
+
+Analysis of plot on residuals to verify normal distribution of residuals
+
+```{r}
+sresid <- studres(amount_reduced_model2) 
+hist(sresid, freq=FALSE, 
+     main="Distribution of Residuals")
+xfit<-seq(min(sresid),max(sresid),length=40) 
+yfit<-dnorm(xfit) 
+lines(xfit, yfit)
+```
+
+Check for Homoscedasticity:
+
+```{r}
+ncvTest(amount_reduced_model2)
+spreadLevelPlot(amount_reduced_model2)
+```
+
+
+Binary Logistic Regression models:
+
+Model 3: Base Model: All variables without transformation.
+All of the variables will be tested to determine the base model they provided. This will allow us to see which variables are significant in our dataset, and allow us to make other models based on that.
+
+```{r}
+train_flag <- ins_train[,-c(2)] #Training dataset with response of crash
+flagfull <- glm(TARGET_FLAG ~.-INCOME_MOD-HOME_VAL_MOD-BLUEBOOK_MOD-OLD_CLAIM_MOD, data = train_flag, family = binomial(link='logit'))
+summary(flagfull)
+```
+
+
+Model 4: We will now add the transformed data to the model.
+
+
+```{r}
+train_flag <- ins_train[,-c(2)] #Training dataset with response of crash
+flagfull_mod <- glm(TARGET_FLAG ~., data = train_flag, family = binomial(link='logit'))
+summary(flagfull_mod)
+```
+
+Model5: We will only keep only the signifacant variables for our resuced model3.
+
+```{r}
+train_flag <- ins_train[,-c(2)] #Training dataset with response of crash
+flag_reduced_mod <- glm(TARGET_FLAG ~.-AGE-HOMEKIDS-YOJ-INCOME-HOME_VAL-SEX-RED_CAR-CLM_FREQ-CAR_AGE-HSDropout-Professional-Blue_Collar-Clerical-Lawyer-Home_Maker-HOME_VAL_MOD-Student-Doctor, data = train_flag, family = binomial(link='logit'))
+summary(flag_reduced_mod)
+```
+
+#MODEL SELECTION:
+
+I would like to select Model5 for Binary Logistic Regression models. The AIC and residual deviance for this model seemed to give the best values that would be suited for the prediction. Below is the ROC curve for model3 and to me it looks good. So i would like to proceed with model5. For Multiple linear model i world like to go for Model2.
+
+```{r}
+train_flag$predict <- predict(flag_reduced_mod, train_flag, type='response')
+
+roc_model3 <- roc(train_flag$TARGET_FLAG, train_flag$predict, plot=T, asp=NA,
+                legacy.axes=T, main = "ROC Curve", col="blue")
+
+roc_model3["auc"]
+```
+
+Now lets do the confusion matrix:
+
+```{r}
+train_flag$predict_target <- ifelse(train_flag$predict >=0.5, 1, 0)
+train_flag$predict_target <- as.integer(train_flag$predict_target)
+myvars <- c("TARGET_FLAG", "predict_target")
+train_flag_cm <- train_flag[myvars]
+cm <- table(train_flag_cm$predict_target,train_flag_cm$TARGET_FLAG)
+knitr:: kable(cm)
+```
+
+```{r}
+Accuracy <- function(data) {
+tb <- table(train_flag_cm$predict_target,train_flag_cm$TARGET_FLAG)
+TN=tb[1,1]
+TP=tb[2,2]
+FN=tb[2,1]
+FP=tb[1,2]
+return((TP+TN)/(TP+FP+TN+FN))
+}
+Accuracy(data)
+``` 
+
+```{r}
+CER <- function(data) {
+tb <- table(train_flag_cm$predict_target,train_flag_cm$TARGET_FLAG)
+TN=tb[1,1]
+TP=tb[2,2]
+FN=tb[2,1]
+FP=tb[1,2]
+return((FP+FN)/(TP+FP+TN+FN))
+}
+CER(data)
+```
+
+```{r}
+Precision <- function(data) {
+tb <- table(train_flag_cm$predict_target,train_flag_cm$TARGET_FLAG)
+TP=tb[2,2]
+FP=tb[1,2]
+return((TP)/(TP+FP))
+}
+Precision(data)
+```
+
+```{r}
+Sensitivity <- function(data) {
+tb <- table(train_flag_cm$predict_target,train_flag_cm$TARGET_FLAG)
+TP=tb[2,2]
+FN=tb[2,1]
+return((TP)/(TP+FN))
+}
+Sensitivity(data)
+```
+
+```{r}
+Specificity <- function(data) {
+tb <- table(train_flag_cm$predict_target,train_flag_cm$TARGET_FLAG)
+TN=tb[1,1]
+TP=tb[2,2]
+FN=tb[2,1]
+FP=tb[1,2]
+return((TN)/(TN+FP))
+}
+Specificity(data)
+```
+
+```{r}
+F1_score <- function(data) {
+tb <- table(train_flag_cm$predict_target,train_flag_cm$TARGET_FLAG)
+TN=tb[1,1]
+TP=tb[2,2]
+FN=tb[2,1]
+FP=tb[1,2]
+Precision = (TP)/(TP+FP)
+Sensitivity = (TP)/(TP+FN)
+Precision =(TP)/(TP+FP)
+return((2*Precision*Sensitivity)/(Precision+Sensitivity))
+}
+F1_score(data)
+```
+
+
+#TEST DATA PREPARATION AND TESTING THE MODEL ON EVALUATION DATA:
+
+In the final step we will test our model by using the test data.
+
+```{r}
+ins_eval <- read.csv("https://raw.githubusercontent.com/Riteshlohiya/Data621-Assignment-4/master/insurance-evaluation-data.csv")
+var_class <- data.frame(Class = rep(NA, ncol(ins_eval) - 1), Levels = rep(NA, ncol(ins_eval) - 1), stringsAsFactors = FALSE, check.names = FALSE, row.names = names(ins_eval)[-1])
+for(i in 2:ncol(ins_eval)) {
+  var_class[i - 1, 1] <- class(ins_eval[, i])
+  var_class[i - 1, 2] <- ifelse(length(levels(ins_eval[, i])) == 0, '-', length(levels(ins_eval[, i])))
+}
+pander(var_class)
+
+ins_eval$INCOME <- as.numeric(str_replace_all(ins_eval$INCOME, "[[:punct:]\\$]",""))
+ins_eval$HOME_VAL <- as.numeric(str_replace_all(ins_eval$HOME_VAL, "[[:punct:]\\$]",""))
+ins_eval$BLUEBOOK <- as.numeric(str_replace_all(ins_eval$BLUEBOOK, "[[:punct:]\\$]",""))
+ins_eval$OLDCLAIM <- as.numeric(str_replace_all(ins_eval$OLDCLAIM, "[[:punct:]\\$]",""))
+
+
+#Convert indicator variables to 0s and 1s; 1 = Yes, Male for Sex, Commercial for Car Use, Red for RED_CAR, and Highly Urban for URBANICITY
+ins_eval$PARENT1 <- ifelse(ins_eval$PARENT1=="Yes", 1, 0)
+ins_eval$MSTATUS <- ifelse(ins_eval$MSTATUS=="Yes", 1, 0)
+ins_eval$SEX <- ifelse(ins_eval$SEX=="M", 1, 0)
+ins_eval$CAR_USE <- ifelse(ins_eval$CAR_USE=="Commercial", 1, 0)
+ins_eval$RED_CAR <- ifelse(ins_eval$RED_CAR=="Yes", 1, 0)
+ins_eval$REVOKED <- ifelse(ins_eval$REVOKED=="Yes", 1, 0)
+ins_eval$URBANICITY <- ifelse(ins_eval$URBANICITY == "Highly Urban/ Urban", 1, 0)
+
+#Convert categorical predictor values to indicator variables - EDUCATION, CAR_TYPE, JOB
+
+#EDUCATION, High school graduate is base case
+ins_eval$HSDropout <- ifelse(ins_eval$EDUCATION=="<High School", 1, 0)
+ins_eval$Bachelors <- ifelse(ins_eval$EDUCATION=="Bachelors", 1, 0)
+ins_eval$Masters <- ifelse(ins_eval$EDUCATION=="Masters", 1, 0)
+ins_eval$PhD <- ifelse(ins_eval$EDUCATION=="PhD", 1, 0)
+
+#CAR_TYPE, base case is minivan
+ins_eval$Panel_Truck <- ifelse(ins_eval$CAR_TYPE=="Panel Truck", 1, 0)
+ins_eval$Pickup <- ifelse(ins_eval$CAR_TYPE=="Pickup", 1, 0)
+ins_eval$Sports_Car <- ifelse(ins_eval$CAR_TYPE=="Sports Car", 1, 0)
+ins_eval$Van <- ifelse(ins_eval$CAR_TYPE=="Van", 1, 0)
+ins_eval$SUV <- ifelse(ins_eval$CAR_TYPE=="z_SUV", 1, 0)
+
+#JOB, base case is ""
+ins_eval$Professional <- ifelse(ins_eval$JOB == "Professional", 1, 0)
+ins_eval$Blue_Collar <- ifelse(ins_eval$JOB == "Professional", 1, 0)
+ins_eval$Clerical <- ifelse(ins_eval$JOB == "Clerical", 1, 0)
+ins_eval$Doctor <- ifelse(ins_eval$JOB == "Doctor", 1, 0)
+ins_eval$Lawyer <- ifelse(ins_eval$JOB == "Lawyer", 1, 0)
+ins_eval$Manager <- ifelse(ins_eval$JOB == "Manager", 1, 0)
+ins_eval$Home_Maker <- ifelse(ins_eval$JOB == "Home Maker", 1, 0)
+ins_eval$Student <- ifelse(ins_eval$JOB == "Student", 1, 0)
+
+ins_eval <- ins_eval %>% dplyr::select(-c(INDEX,EDUCATION,CAR_TYPE,JOB))
+
+fillwithmedian <- function(x) {
+  median_val = median(x, na.rm = TRUE)
+  x[is.na(x)] = median_val
+  return(x)
+}
+
+ins_eval <- data.frame(lapply(ins_eval, fillwithmedian))
+
+
+ins_eval$INCOME_MOD <- ins_eval$INCOME ^0.433
+ins_eval$HOME_VAL_MOD <- ins_eval$HOME_VAL^0.113
+ins_eval$BLUEBOOK_MOD <- ins_eval$BLUEBOOK^0.461
+ins_eval$OLD_CLAIM_MOD <- log(ins_eval$OLDCLAIM + 1) 
+
+ins_eval$predict_prob <- predict(flag_reduced_mod, ins_eval, type='response')
+ins_eval$predict_target <- ifelse(ins_eval$predict_prob >= 0.50, 1,0)
+
+write.csv(ins_eval,"Evaluation_Data.csv", row.names=FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
