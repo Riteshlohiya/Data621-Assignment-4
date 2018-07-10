@@ -751,7 +751,7 @@ return((TP+TN)/(TP+FP+TN+FN))
 }
 Accuracy(data)
 ``` 
-
+ 
 ```{r}
 CER <- function(data) {
 tb <- table(train_flag_cm$predict_target,train_flag_cm$TARGET_FLAG)
