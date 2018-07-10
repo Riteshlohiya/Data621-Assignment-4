@@ -43,7 +43,6 @@ The dataset of interest contains information about customers of an auto insuranc
 
 ```{r}
 ins_train <- read.csv("https://raw.githubusercontent.com/Riteshlohiya/Data621-Assignment-4/master/insurance_training_data.csv") 
-ins_eval <- read.csv("https://raw.githubusercontent.com/Riteshlohiya/Data621-Assignment-4/master/insurance-evaluation-data.csv")
 summary(ins_train)
 
 var_class <- data.frame(Class = rep(NA, ncol(ins_train) - 1), Levels = rep(NA, ncol(ins_train) - 1), stringsAsFactors = FALSE, check.names = FALSE, row.names = names(ins_train)[-1])
@@ -65,7 +64,23 @@ ins_train$OLDCLAIM <- as.numeric(str_replace_all(ins_train$OLDCLAIM, "[[:punct:]
 
 Visual Exploration:
 
-Now we will see the missing values in the dataset. For this i have used Amelia package. We can see there are missing values for CAR_AGE, HOME_VAL, YOJ and INCOME. There needs to be taken care while we do data prparation.
+Boxplots are generated for non-binary variables split by TARGET_FLAG:
+
+```{r}
+numeric <- ins_train %>% dplyr::select(c(TARGET_FLAG, TARGET_AMT, KIDSDRIV, AGE, HOMEKIDS, YOJ, INCOME, HOME_VAL, TRAVTIME, BLUEBOOK, TIF, OLDCLAIM, CLM_FREQ, MVR_PTS, CAR_AGE))
+
+numeric <- melt(numeric, id.vars="TARGET_FLAG")
+numeric$TARGET_FLAG <- factor(numeric$TARGET_FLAG)
+ggplot(numeric, aes(TARGET_FLAG, value)) + geom_boxplot(aes(fill = TARGET_FLAG), alpha = 0.5) + facet_wrap(~variable, scale="free") + scale_fill_discrete(guide = FALSE) + scale_y_continuous('', labels = NULL, breaks = NULL) + scale_x_discrete('') + ggtitle("Distribution of Predictors by TARGET_FLAG\n")
+```
+
+Now lets see the correlations:
+
+```{r}
+pairs(~MVR_PTS+CLM_FREQ+URBANICITY+HOME_VAL+PARENT1+CAR_USE+OLDCLAIM, data=ins_train, main="Predictors with High Correlattions to Targets", col="slategrey")
+```
+
+Now we will see the missing values in the dataset. For this i have used Amelia package. We can see there are missing values for CAR_AGE, HOME_VAL, YOJ and INCOME. There needs to be taken care while we do data preparation.
 
 ```{r}
 missmap(ins_train, main = "Missing values vs observed",  color='dodgerblue')
@@ -140,7 +155,7 @@ box_target <- ggplot(ins_train, aes(x=factor(TARGET_FLAG), CAR_AGE)) + geom_boxp
 grid.arrange(hist, qq_plot, box_plot, box_target, ncol=2)
 ```
 
-CLM_FREQ - # Claims (Past 5 Years). The more claims you filed in the past, the more you are likely to file in the future. We can see that this variable is alos skewed. 
+CLM_FREQ - # Claims (Past 5 Years). The more claims you filed in the past, the more you are likely to file in the future. We can see that this variable is also skewed. 
 
 ```{r}
 with(ins_train, c(summary(CLM_FREQ), SD=sd(CLM_FREQ), Skew=skewness(CLM_FREQ), Kurt=kurtosis(CLM_FREQ)))
@@ -399,7 +414,7 @@ round(prop.table(tbl[1:2,1:2], margin=1),2)
 prop.test(tbl[1:2,1:2])
 ```
 
-MSTATUS - Marital Status.  In theory, married people drive more safely.
+MSTATUS - Marital Status.  In theory, married people drive more safely. There is a fairly balanced split (60/40) between married and single insureds.
 
 ```{r}
 tbl <- addmargins(table(MSTATUS=ins_train$MSTATUS,TARGET_FLAG=ins_train$TARGET_FLAG))
@@ -439,7 +454,6 @@ row.names(tbl) <- c('count','percent')
 round(tbl,1)
 ```
 
-TARGET_AMT
 
 TARGET_AMT - exhibits extreme, positive skewness and high kurtosis.
 
@@ -546,7 +560,7 @@ fillwithmedian <- function(x) {
 ins_train <- data.frame(lapply(ins_train, fillwithmedian))
 ```
 
-Data transformatioms:
+Lets look into the variables and see what transformation to use.
 
 INCOME
 
@@ -611,9 +625,13 @@ Interpretation of the Model1:
 
 
 The Residual standard error is 4545
+
 Multiple R-squared: 0.07105
+
 Adjusted R-squared: 0.06659
+
 F-statistic: 15.93 on 39 and 8121 DF
+
 p-value: <  2.2e-16
 
 
@@ -641,9 +659,13 @@ Interpretation of the Model2:
 
 
 The Residual standard error is  4556
+
 Multiple R-squared: 0.06366
+
 Adjusted R-squared: 0.06194
+
 F-statistic:  36.92 on 15 and 8145 DF
+
 p-value: <   2.2e-16
 
 Analysis of plot on residuals to verify normal distribution of residuals
@@ -665,7 +687,7 @@ spreadLevelPlot(amount_reduced_model2)
 ```
 
 
-Binary Logistic Regression models:
+2. Binary Logistic Regression models:
 
 Model 3: Base Model: All variables without transformation.
 All of the variables will be tested to determine the base model they provided. This will allow us to see which variables are significant in our dataset, and allow us to make other models based on that.
@@ -686,7 +708,7 @@ flagfull_mod <- glm(TARGET_FLAG ~., data = train_flag, family = binomial(link='l
 summary(flagfull_mod)
 ```
 
-Model5: We will only keep only the signifacant variables for our resuced model3.
+Model5: We will only keep only the significant variables for our reduced model3.
 
 ```{r}
 train_flag <- ins_train[,-c(2)] #Training dataset with response of crash
@@ -696,7 +718,7 @@ summary(flag_reduced_mod)
 
 #MODEL SELECTION:
 
-I would like to select Model5 for Binary Logistic Regression models. The AIC and residual deviance for this model seemed to give the best values that would be suited for the prediction. Below is the ROC curve for model3 and to me it looks good. So i would like to proceed with model5. For Multiple linear model i world like to go for Model2.
+I would like to select model5 for Binary Logistic Regression models. The AIC and residual deviance for this model seemed to give the best values that would be suited for the prediction. Below is the ROC curve for model5 and to me it looks good. So i would like to proceed with model5. For Multiple linear model i wouldd like to go for model2.
 
 ```{r}
 train_flag$predict <- predict(flag_reduced_mod, train_flag, type='response')
@@ -865,7 +887,7 @@ ins_eval1 <- filter(ins_eval, predict_target == 1)
 ins_eval1$predict_target<-as.numeric(ins_eval1$predict_target)
 
 ins_eval1$TARGET_AMT1 <- predict(amount_reduced_model2, newdata=ins_eval1)
-ins_eval1
+
 write.csv(ins_eval1,"Evaluation_Full_Data.csv", row.names=FALSE)
 
 ```
